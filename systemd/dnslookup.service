@@ -1,0 +1,12 @@
+[Unit]
+Description=DNS Lookup Service
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/dnslookup
+ExecStart=/usr/bin/python3 /opt/dnslookup/app.py
+Restart=always
+User=test
+
+[Install]
+WantedBy=multi-user.target
