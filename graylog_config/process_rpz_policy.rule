@@ -1,0 +1,76 @@
+rule "process_rpz_policy"
+when
+    contains(to_string($message.message), "Policy Zone=")
+then
+    let raw_msg = to_string($message.message);
+
+    //
+    // Policy Zone
+    //
+    let policy_zone = regex_replace(
+        ".*Policy Zone=([^,]+),.*",
+        raw_msg,
+        "$1"
+    );
+
+    //
+    // Extract Trigger Reason (strip the +5 automatically)
+    //
+    let domain_tmp = lowercase(regex_replace(
+        ".*Trigger Reason=([^,+]+)\\+[0-9]+,.*",
+        raw_msg,
+        "$1"
+    ));
+
+    //
+    // Remove optional RPZ wildcard prefixes (*.example.com -> example.com)
+    //
+    let domain_full = regex_replace(
+        "^\\*?\\.",
+        domain_tmp,
+        ""
+    );
+
+    //
+    // Registered/root domain
+    //
+    let domain_root = regex_replace(
+        "^.*?([a-zA-Z0-9\\-]+\\.[a-zA-Z]{2,})$",
+        domain_full,
+        "$1"
+    );
+
+    //
+    // Lookup client IP from DNS Lookup Table
+    //
+    let client_ip = lookup_value(
+        "dns_lookup",
+        to_string(domain_root)
+    );
+
+    let client_ip = lookup_value(
+       "dns_lookup",
+       to_string(domain_root)
+    );
+
+set_field("client_ip", client_ip);
+
+    //
+    // Action
+    //
+    let action_val = regex_replace(
+        ".*Action Type=([^,]+),.*",
+        raw_msg,
+        "$1"
+    );
+
+    //
+    // Store extracted fields
+    //
+    set_field("policy_zone", policy_zone);
+    set_field("domain_full", domain_full);
+    set_field("domain", domain_root);
+    set_field("rpz_action", action_val);
+
+    route_to_stream(name: "RPZ Policy Log");
+end
