@@ -32,7 +32,7 @@ then
     );
 
     //
-    // Registered/root domain
+    // Registered/root domain (keep for reporting only)
     //
     let domain_root = regex_replace(
         "^.*?([a-zA-Z0-9\\-]+\\.[a-zA-Z]{2,})$",
@@ -41,19 +41,19 @@ then
     );
 
     //
-    // Lookup client IP from DNS Lookup Table
+    // Lookup client IP using the FULL domain
     //
     let client_ip = lookup_value(
         "dns_lookup",
-        to_string(domain_root)
+        to_string(domain_full)
     );
-
+    
     let client_ip = lookup_value(
-       "dns_lookup",
-       to_string(domain_root)
+        "dns_lookup",
+        to_string(domain_full)
     );
-
-set_field("client_ip", client_ip);
+    
+    set_field("client_ip", client_ip);
 
     //
     // Action
@@ -73,4 +73,4 @@ set_field("client_ip", client_ip);
     set_field("rpz_action", action_val);
 
     route_to_stream(name: "RPZ Policy Log");
-end
+end 
