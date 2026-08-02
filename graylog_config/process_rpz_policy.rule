@@ -5,9 +5,9 @@ then
     let raw_msg = to_string($message.message);
 
     //
-    // Policy Zone
+    // RPZ Policy Zone
     //
-    let policy_zone = regex_replace(
+    let rpz_policy_zone = regex_replace(
         ".*Policy Zone=([^,]+),.*",
         raw_msg,
         "$1"
@@ -23,54 +23,48 @@ then
     ));
 
     //
-    // Remove optional RPZ wildcard prefixes (*.example.com -> example.com)
+    // Remove optional wildcard prefix (*.example.com -> example.com)
     //
-    let domain_full = regex_replace(
+    let rpz_domain_full = regex_replace(
         "^\\*?\\.",
         domain_tmp,
         ""
     );
 
     //
-    // Registered/root domain (keep for reporting only)
+    // Registered/root domain
     //
-    let domain_root = regex_replace(
+    let rpz_domain = regex_replace(
         "^.*?([a-zA-Z0-9\\-]+\\.[a-zA-Z]{2,})$",
-        domain_full,
+        rpz_domain_full,
         "$1"
     );
 
     //
-    // Lookup client IP using the FULL domain
+    // Lookup client IP using the FULL hostname
     //
-    let client_ip = lookup_value(
+    let rpz_client_ip = lookup_value(
         "dns_lookup",
-        to_string(domain_full)
+        to_string(rpz_domain_full)
     );
-    
-    let client_ip = lookup_value(
-        "dns_lookup",
-        to_string(domain_full)
-    );
-    
-    set_field("client_ip", client_ip);
 
     //
-    // Action
+    // RPZ Action
     //
-    let action_val = regex_replace(
+    let rpz_action = regex_replace(
         ".*Action Type=([^,]+),.*",
         raw_msg,
         "$1"
     );
 
     //
-    // Store extracted fields
+    // Store RPZ fields
     //
-    set_field("policy_zone", policy_zone);
-    set_field("domain_full", domain_full);
-    set_field("domain", domain_root);
-    set_field("rpz_action", action_val);
+    set_field("rpz_policy_zone", rpz_policy_zone);
+    set_field("rpz_domain_full", rpz_domain_full);
+    set_field("rpz_domain", rpz_domain);
+    set_field("rpz_client_ip", rpz_client_ip);
+    set_field("rpz_action", rpz_action);
 
     route_to_stream(name: "RPZ Policy Log");
-end 
+end
