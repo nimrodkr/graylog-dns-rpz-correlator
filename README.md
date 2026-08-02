@@ -1,320 +1,190 @@
-# Graylog DNS RPZ Correlator
-
-A lightweight Python service that enriches Graylog RPZ (Response Policy Zone) policy events with the originating DNS client IP address by querying OpenSearch.
+# Graylog DNS Client IP Lookup Service
 
 ## Overview
 
-Many DNS servers generate two separate syslog events:
+The **Graylog DNS Client IP Lookup Service** provides a lightweight HTTP API that allows Graylog Lookup Tables to correlate DNS policy events with the originating client IP address.
 
-- A DNS Query event containing the client IP address and requested domain.
-- An RPZ Policy event indicating that a DNS policy matched and an action (DROP, NODATA, NXDOMAIN, etc.) was taken.
+When Graylog receives a DNS Policy (RPZ) event, it typically contains only the queried domain and the action taken (DROP, NODATA, NXDOMAIN, etc.), but not the client IP that generated the request.
 
-Unfortunately, RPZ policy events typically do **not** contain the client IP address, making investigations difficult.
+This service bridges that gap by searching recent DNS query logs stored in OpenSearch and returning the matching client IP(s) based on the requested domain.
 
-This project solves that problem by searching recent DNS query events stored in OpenSearch and returning the matching client IP address to Graylog via an HTTP Lookup Table.
-
-The result is automatic enrichment of RPZ events with the originating client IP.
+The service was designed specifically for Graylog Data Adapters but can be integrated with any system capable of issuing HTTP GET requests.
 
 ---
 
 ## Features
 
-- Fast OpenSearch lookups
-- Designed for Graylog 6.x
-- Supports OpenSearch 2.x
-- Wildcard domain correlation
-- Simple REST API
-- Lightweight Flask application
-- Easy systemd deployment
-- Stale result detection
+* Lightweight Python HTTP service
+* Compatible with Graylog HTTP JSONPath Data Adapters
+* Searches recent DNS queries stored in OpenSearch
+* Supports multiple lookup strategies
+* Automatically retries searches to compensate for indexing delays
+* Returns multiple unique client IPs when applicable
+* Provides detailed debug logging
+* Requires no external database
 
 ---
 
-## Architecture
+## Lookup Workflow
+
+For every lookup request, the service searches OpenSearch using the following sequence:
+
+1. Exact match against `domain_full` (Markdown formatted)
+2. Exact match against `domain_full` (plain text)
+3. Match against the extracted root `domain`
+4. Wildcard search on the root domain
+
+The first successful lookup is returned.
+
+If no match is found, the service retries several times before returning an empty result to compensate for OpenSearch indexing latency.
+
+---
+
+## Example Request
 
 ```
-                     DNS Query
-                         │
-                         ▼
-                   Graylog Input
-                         │
-                         ▼
-                    OpenSearch
-                         ▲
-                         │ REST Search
-                         │
-             Python Lookup Service
-                         ▲
-                         │ HTTP JSON
-             Graylog Lookup Table
-                         ▲
-                         │
-              Graylog Pipeline Rule
-                         │
-                         ▼
-              Enriched RPZ Event
+GET /lookup?domain=www.example.com
 ```
 
 ---
 
-## Repository Structure
+## Example Response
+
+```json
+{
+  "lookup": {
+    "client_ip": "192.168.1.10"
+  },
+  "domain": "www.example.com",
+  "matched_domain": "[www.example.com](https://www.example.com)",
+  "match_type": "domain_full_markdown"
+}
+```
+
+If multiple DNS clients queried the same domain within the configured time window:
+
+```json
+{
+  "lookup": {
+    "client_ip": "192.168.1.10,192.168.1.11"
+  }
+}
+```
+
+---
+
+## Configuration
+
+The following parameters can be adjusted inside the source code:
+
+| Parameter         | Description                         |
+| ----------------- | ----------------------------------- |
+| `OPENSEARCH_URL`  | OpenSearch endpoint                 |
+| `INDEX_PATTERN`   | Index pattern to search             |
+| `TIME_WINDOW`     | Search window (default 120 seconds) |
+| `QUERY_SIZE`      | Maximum search results              |
+| `REQUEST_TIMEOUT` | OpenSearch request timeout          |
+| `RETRY_COUNT`     | Number of retry attempts            |
+| `RETRY_DELAY`     | Delay between retries               |
+| `DEBUG`           | Enable verbose logging              |
+
+---
+
+## Graylog Configuration
+
+Create an HTTP JSONPath Data Adapter.
+
+Example URL:
 
 ```
-.
-├── app.py
-├── dnslookup.py
-├── opensearch.py
-├── config.py.example
-├── requirements.txt
-├── graylog/
-├── systemd/
-├── screenshots/
-└── README.md
+http://127.0.0.1:5000/lookup?domain=${message.domain_full}
+```
+
+Configure the JSONPath expression as:
+
+```
+$.lookup.client_ip
+```
+
+The adapter returns the client IP associated with the DNS request, allowing Graylog Pipelines to enrich RPZ events with the originating client address.
+
+---
+
+## Running the Service
+
+Start the service:
+
+```bash
+python3 lookup_listener.py
+```
+
+or
+
+```bash
+python3 app.py
+```
+
+The service listens on:
+
+```
+http://127.0.0.1:5000
+```
+
+Health check:
+
+```
+GET /health
+```
+
+Lookup endpoint:
+
+```
+GET /lookup?domain=<domain>
 ```
 
 ---
 
 ## Requirements
 
-- Python 3.8 or newer
-- Graylog 6.x
-- OpenSearch 2.x
-- Recent DNS query logs indexed in OpenSearch
+* Python 3.9+
+* OpenSearch
+* Graylog
+* DNS query logs indexed in OpenSearch
+* Python packages:
+
+  * Flask (for the Flask implementation)
+  * opensearch-py (if using the Flask wrapper)
+  * Standard Python libraries
 
 ---
 
-## Installation
+## Typical Use Case
 
-Clone the repository:
-
-```bash
-git clone https://github.com/nimrodkr/graylog-dns-rpz-correlator.git
-cd graylog-dns-rpz-correlator
-```
-
-Create a virtual environment:
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Create your configuration:
-
-```bash
-cp config.py.example config.py
-```
-
-Edit **config.py** to match your environment.
+1. A DNS client queries a domain.
+2. Graylog stores the DNS query log.
+3. A DNS RPZ policy event is received.
+4. Graylog Lookup Table calls this service with the domain.
+5. The service searches recent DNS query logs.
+6. The matching client IP(s) are returned.
+7. Graylog enriches the RPZ event with the client IP for dashboards, alerts, and investigations.
 
 ---
 
-## Running
+## Logging
 
-Start the application:
+When debug mode is enabled, the service prints:
 
-```bash
-python app.py
-```
+* Incoming HTTP requests
+* Search strategy used
+* OpenSearch queries
+* OpenSearch responses
+* Matching client IPs
+* Retry attempts
 
-The service listens on:
-
-```
-http://localhost:5000
-```
-
----
-
-## REST API
-
-### Request
-
-```
-GET /lookup?domain=facebook.com
-```
-
-### Successful Response
-
-```json
-{
-    "lookup": {
-        "client_ip": "192.168.1.55",
-        "domain": "facebook.com",
-        "domain_full": "www.facebook.com",
-        "timestamp": "2026-07-30T09:10:00Z",
-        "age_seconds": 3,
-        "stale": false
-    }
-}
-```
-
-### No Match
-
-```json
-{
-    "lookup": null
-}
-```
-
----
-
-## Graylog Configuration
-
-### HTTP JSONPath Data Adapter
-
-URL:
-
-```
-http://localhost:5000/lookup?domain=${key}
-```
-
-JSONPath:
-
-```
-$.lookup.client_ip
-```
-
-### Pipeline Example
-
-```groovy
-let client_ip = lookup_value(
-    "dns_lookup",
-    to_string(domain_root)
-);
-
-set_field("client_ip", client_ip);
-```
-
----
-
-## Example Workflow
-
-1. Client queries:
-
-```
-www.facebook.com
-```
-
-2. DNS Query log is indexed in OpenSearch.
-
-3. RPZ Policy log is received by Graylog.
-
-4. Pipeline extracts the root domain.
-
-5. Graylog performs an HTTP Lookup.
-
-6. Lookup service searches OpenSearch.
-
-7. Matching client IP is returned.
-
-8. Graylog enriches the RPZ event.
-
----
-
-## Example Use Case
-
-Original RPZ event:
-
-```
-Policy Zone=a10rpz
-Trigger Reason=www.facebook.com+5
-Action Type=drop
-```
-
-After enrichment:
-
-```
-client_ip=192.168.1.55
-policy_zone=a10rpz
-domain_root=facebook.com
-action=drop
-```
-
----
-
-## Installing as a systemd Service
-
-Example service file is included under:
-
-```
-systemd/
-```
-
-Install:
-
-```bash
-sudo cp systemd/dnslookup.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable dnslookup
-sudo systemctl start dnslookup
-```
-
----
-
-## Screenshots
-
-Recommended screenshots:
-
-- Graylog Dashboard
-- Lookup Table configuration
-- Pipeline Rule
-- Search example
-- Enriched RPZ event
-
-Place screenshots under:
-
-```
-screenshots/
-```
-
----
-
-## Compatibility
-
-Tested with:
-
-- Graylog 6.x
-- OpenSearch 2.x
-- Ubuntu 20.04
-- Python 3.8+
-
----
-
-## Roadmap
-
-Future improvements include:
-
-- Docker image
-- Docker Compose deployment
-- Redis cache
-- Multi-value lookup support
-- Prometheus metrics
-- Automatic installer
-- Weekly reporting
-
----
-
-## Contributing
-
-Contributions, suggestions and bug reports are welcome.
-
-Please open an Issue or submit a Pull Request.
+This greatly simplifies troubleshooting and validation.
 
 ---
 
 ## License
 
-MIT License
-
----
-
-## Acknowledgements
-
-Developed to simplify DNS RPZ investigations by automatically correlating DNS query logs with RPZ policy events inside Graylog using OpenSearch.
-
+MIT License.
