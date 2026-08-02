@@ -1,0 +1,42 @@
+rule "process_dns_query"
+when
+    contains(to_string($message.message), "Type=Query")
+then
+    let raw_msg = to_string($message.message);
+
+    //
+    // Extract queried hostname
+    //
+    let dom_full = lowercase(regex_replace(
+        ".*dhost=\\[?([a-zA-Z0-9\\.\\-]+)\\]?(?:\\([^\\)]*\\))?.*",
+        raw_msg,
+        "$1"
+    ));
+
+    //
+    // Extract client IP (supports both UDP and TCP)
+    //
+    let src_ip = regex_replace(
+        ".*(?:UDP|TCP)\\s+([0-9]{1,3}(?:\\.[0-9]{1,3}){3}).*",
+        raw_msg,
+        "$1"
+    );
+
+    //
+    // Registered/root domain
+    //
+    let domain_root = regex_replace(
+        "^.*?([a-zA-Z0-9\\-]+\\.[a-zA-Z]{2,})$",
+        dom_full,
+        "$1"
+    );
+
+    //
+    // Store fields
+    //
+    set_field("client_ip", src_ip);
+    set_field("domain_full", dom_full);
+    set_field("domain", domain_root);
+
+    route_to_stream(name: "DNS Query Log");
+end
