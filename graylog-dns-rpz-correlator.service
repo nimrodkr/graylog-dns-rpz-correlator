@@ -1,0 +1,30 @@
+[Unit]
+Description=Graylog DNS RPZ Correlator
+After=network-online.target opensearch.service graylog-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+User=rpzcorrelator
+Group=rpzcorrelator
+
+WorkingDirectory=/opt/graylog-dns-rpz-correlator
+EnvironmentFile=/etc/graylog-dns-rpz-correlator/rpz-correlator.env
+
+ExecStart=/opt/graylog-dns-rpz-correlator/venv/bin/python3 /opt/graylog-dns-rpz-correlator/rpz_correlator.py
+
+Restart=always
+RestartSec=5
+
+# Service hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+# SQLite state must remain writable
+ReadWritePaths=/var/lib/graylog-dns-rpz-correlator
+
+[Install]
+WantedBy=multi-user.target
