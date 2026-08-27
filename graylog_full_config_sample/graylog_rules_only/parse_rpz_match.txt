@@ -1,0 +1,37 @@
+rule "parse_rpz_match"
+when
+    contains(to_string($message.message), "RPZ_Match")
+then
+    let domain = regex("domain=([^ ]+)", to_string($message.message));
+    let action = regex("action=([^ ]+)", to_string($message.message));
+    let client_ip = regex("client_ip=([^ ]+)", to_string($message.message));
+    let client_port = regex("client_port=([^ ]+)", to_string($message.message));
+    let client_endpoint = regex("client_endpoint=([^ ]+)", to_string($message.message));
+    let zone = regex("zone=([^ ]+)", to_string($message.message));
+    let matched_domain = regex("matched_domain=([^ ]+)", to_string($message.message));
+    let query_id = regex("query_id=([^ ]+)", to_string($message.message));
+    let query_type = regex("query_type=([^ ]+)", to_string($message.message));
+    let policy_id = regex("policy_id=([^ ]+)", to_string($message.message));
+    let dns_id = regex("dns_id=([^ ]+)", to_string($message.message));
+
+    set_field("rpz_domain", domain["0"]);
+    set_field("rpz_action", action["0"]);
+
+    set_field("client_ip", client_ip["0"]);
+    set_field("client_port", client_port["0"]);
+    set_field("client_endpoint", client_endpoint["0"]);
+
+    set_field("rpz_zone", zone["0"]);
+    set_field("matched_domain", matched_domain["0"]);
+    set_field("query_id", query_id["0"]);
+    set_field("query_type", query_type["0"]);
+    set_field("policy_id", policy_id["0"]);
+    set_field("dns_id", dns_id["0"]);
+
+    set_field("event_type", "rpz_match");
+
+    route_to_stream(
+        name: "RPZ_Matches",
+        remove_from_default: false
+    );
+end

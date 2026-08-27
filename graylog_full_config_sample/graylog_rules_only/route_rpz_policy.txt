@@ -1,0 +1,13 @@
+rule "route_rpz_policy"
+when
+    has_field("message") &&
+    contains(
+        to_string($message.message),
+        "Policy Zone="
+    )
+then
+    route_to_stream(
+        name: "RPZ_Policy",
+        remove_from_default: false
+    );
+end
